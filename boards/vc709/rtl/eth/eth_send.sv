@@ -5,6 +5,8 @@ import udp_pkg::*;
 import dns_pkg::*;
 
 module eth_send #(
+	parameter IP_PATTERN = "RANDOM",      // "RANDOM" or "INCREMENT"
+	parameter DPORT_PATTERN = "SINGLE",   // "SINGLE" or "DYNAMIC"
 	parameter ifg_len = 28'hFFFF,
 	parameter frame_len = 16'd1020,
 	parameter head_size = 6,
@@ -65,6 +67,16 @@ function [15:0] ipcheck_gen(
 	ipcheck_gen = ~( sum[15:0] + {8'h0, sum[23:16]} );
 endfunction :ipcheck_gen
 
+/* Random Generation */
+logic [31:0] rand0;
+prbs u_prbs0 (
+	.do      (rand0), //32bit
+	.clk     (clk156),
+	.rst     (sys_rst),
+	.advance (1'b1)
+
+);
+
 // packet init
 
 always_comb begin
@@ -101,7 +113,7 @@ always_comb begin
 end
 
 logic [15:0] dport;
-logic [ 9:0] saddr_high;
+logic [15:0] saddr_high;
 logic [15:0] ipsum;
 
 // main
@@ -113,7 +125,7 @@ always_ff @(posedge clk156) begin
 		cnt_pad    <= 0;
 		tx_state   <= TX_IDLE;
 		dport      <= 16'd50001;
-		saddr_high <= 10'd1;
+		saddr_high <= 16'd1;
 		ipsum      <= 16'd0;
 	end else begin
 		case (tx_state)
@@ -151,8 +163,8 @@ always_ff @(posedge clk156) begin
 					end
 
 					// saddr_high
-					if (saddr_high == 10'd1000) begin
-						saddr_high <= 10'd0;
+					if (saddr_high == 16'd1000) begin
+						saddr_high <= 16'd0;
 					end else begin
 						saddr_high <= saddr_high + 1;
 					end
@@ -163,9 +175,21 @@ always_ff @(posedge clk156) begin
 		endcase
 	end
 end
-always_comb tx_pkt.hdr.udp.dest = dport;
-always_comb tx_pkt.hdr.ip.saddr = {8'd10, saddr_high, 6'd1, 8'd1};
+
+
 always_comb tx_pkt.hdr.ip.check = ipsum;
+
+generate 
+	if (IP_PATTERN == "RANDOM")
+		always_comb tx_pkt.hdr.ip.saddr = {8'd10, rand0[15:0], 6'd1, 8'd1};
+	else if (IP_PATTERN == "INCREMENT")
+		always_comb tx_pkt.hdr.ip.saddr = {8'd10, saddr_high, 6'd1, 8'd1};
+
+	if (DPORT_PATTERN == "SINGLE")
+		always_comb tx_pkt.hdr.udp.dest = udp_dport;
+	else if (DPORT_PATTERN == "DYNAMIC")
+		always_comb tx_pkt.hdr.udp.dest = dport;
+endgenerate
 
 // tdata
 logic [63:0] s_axis_tx_tdata_reg;
